@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Classroom Bell Schedule Alarm Clock</title>
+<style>
+* { box-sizing: border-box; }
+body { margin:0; padding:20px; background:#fff; font-family:Arial,sans-serif; color:#1e293b; }
+.clock { max-width:650px; margin:auto; display:flex; flex-direction:column; gap:16px; }
+.panel { background:#fff; border:2px solid #c9e2d0; border-radius:15px; padding:16px; }
+.green { color:#187a43; }
+.mainclock { font-size:clamp(48px,11vw,76px); font-weight:800; letter-spacing:2px; color:#176b3a; text-align:center; font-variant-numeric:tabular-nums; }
+.count { font-size:clamp(32px,8vw,49px); font-weight:800; color:#176b3a; text-align:center; font-variant-numeric:tabular-nums; }
+button { border-radius:9px; padding:13px; font-weight:700; font-size:14px; cursor:pointer; }
+.primary { background:#197b43; color:white; border:2px solid #197b43; }
+.secondary { background:white; color:#176b3a; border:2px solid #a8cfb3; }
+.controls { display:flex; gap:8px; }
+.controls button { flex:1; }
+.progress-bg { margin-top:16px; height:8px; border-radius:20px; background:#dcfce7; overflow:hidden; }
+#progress { height:100%; width:0%; background:#16a34a; border-radius:20px; }
+@media(max-width:420px){body{padding:12px}.controls{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="clock">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <div class="green" style="font-size:12px;font-weight:bold;letter-spacing:2px;">CLASSROOM TIMEKEEPER</div>
+      <div style="font-size:20px;font-weight:800;">SCHOOL BELL SCHEDULE</div>
+    </div>
+    <div style="font-size:30px;">🔔</div>
+  </div>
+  <div class="panel">
+    <div class="green" style="text-align:center;font-size:12px;font-weight:bold;">CURRENT TIME</div>
+    <div id="time" class="mainclock">--:--:--</div>
+    <div id="date" style="text-align:center;color:#64748b;"></div>
+  </div>
+  <div class="panel">
+    <div class="green" style="text-align:center;font-size:12px;font-weight:bold;">COUNTDOWN TO NEXT BELL</div>
+    <div id="countdown" class="count" style="margin-top:12px;">--:--:--</div>
+    <div id="nextname" class="green" style="text-align:center;font-weight:bold;font-size:18px;margin-top:12px;">Loading...</div>
+    <div id="nexttime" style="text-align:center;color:#64748b;margin-top:5px;"></div>
+    <div class="progress-bg"><div id="progress"></div></div>
+  </div>
+  <div class="controls">
+    <button id="enable" class="primary">▶ Start Bell Alarms</button>
+    <button id="mute" class="secondary">🔊 Sound On</button>
+  </div>
+</div>
+<script>
+const periods = [
+  ['7:45 AM','8:00 AM'], ['8:00 AM','8:40 AM'],
+  ['8:42 AM','9:22 AM'], ['9:24 AM','10:04 AM'],
+  ['10:06 AM','10:46 AM'], ['10:48 AM','11:33 AM'],
+  ['11:35 AM','12:20 PM'], ['12:22 PM','12:52 PM'],
+  ['12:54 PM','1:34 PM'], ['1:36 PM','2:22 PM'],
+  ['2:25 PM','3:00 PM']
+];
+const bells = periods.map((p,i) => ({
+  name: i === 0 ? 'Morning Start' : `Period ${i}`,
+  start: p[0], time: p[1]
+}));
+function parseTime(value) {
+  let [t, ap] = value.split(' ');
+  let [h,m] = t.split(':').map(Number);
+  if (ap === 'PM' && h !== 12) h += 12;
+  if (ap === 'AM' && h === 12) h = 0;
+  return h * 60 + m;
+}
+function at(date, minutes) {
+  let x = new Date(date);
+  x.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return x;
+}
+let active = false, sound = true, audio = null, lastBell = '';
+function nextBell(now) {
+  for (let i = 0; i < bells.length; i++) {
+    let when = at(now, parseTime(bells[i].time));
+    if (when > now) return {...bells[i], i, when};
+  }
+  let tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {...bells[0], i:0, when:at(tomorrow,parseTime(bells[0].time))};
+}
+function ring() {
+  if (!active || !sound) return;
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+    [0,0.35,0.7].forEach(offset => {
+      let osc = audio.createOscillator(), gain = audio.createGain();
+      osc.frequency.value = 880;
+      osc.connect(gain); gain.connect(audio.destination);
+      gain.gain.setValueAtTime(0.001,audio.currentTime+offset);
+      gain.gain.exponentialRampToValueAtTime(0.18,audio.currentTime+offset+0.03);
+      gain.gain.setValueAtTime(0.18,audio.currentTime+offset+0.18);
+      gain.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+offset+0.28);
+      osc.start(audio.currentTime+offset);
+      osc.stop(audio.currentTime+offset+0.3);
+    });
+  } catch(e) { console.error('Bell sound unavailable:',e); }
+}
+function update() {
+  const now = new Date(), n = nextBell(now);
+  document.getElementById('time').textContent = now.toLocaleTimeString('en-US');
+  document.getElementById('date').textContent = now.toLocaleDateString('en-US',{
+    weekday:'long',month:'long',day:'numeric',year:'numeric'
+  });
+  let secs = Math.max(0,Math.floor((n.when-now)/1000));
+  let h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60;
+  document.getElementById('countdown').textContent =
+    [h,m,s].map(v=>String(v).padStart(2,'0')).join(':');
+  document.getElementById('nextname').textContent =
+    n.i===0 ? 'Morning Start Bell' : `Period ${n.i} Bell`;
+  document.getElementById('nexttime').textContent = `Rings at ${n.time}`;
+  let start = n.i===0 ? at(n.when,0) : at(now,parseTime(bells[n.i-1].time));
+  let span = n.when-start;
+  document.getElementById('progress').style.width =
+    Math.max(0,Math.min(100,100*(1-(n.when-now)/span)))+'%';
+  if (active && secs===0) {
+    let key=n.when.toISOString();
+    if(lastBell!==key){lastBell=key;ring();}
+  }
+}
+document.getElementById('enable').addEventListener('click',()=>{
+  active=!active;
+  let button=document.getElementById('enable');
+  button.textContent=active?'■ Stop Bell Alarms':'▶ Start Bell Alarms';
+  button.className=active?'secondary':'primary';
+  if(active){
+    audio=audio||new (window.AudioContext||window.webkitAudioContext)();
+    if(audio.state==='suspended') audio.resume();
+  }
+});
+document.getElementById('mute').addEventListener('click',()=>{
+  sound=!sound;
+  document.getElementById('mute').textContent=sound?'🔊 Sound On':'🔇 Sound Off';
+});
+update();
+setInterval(update,250);
+</script>
+</body>
+</html>
